@@ -18,7 +18,7 @@ use super::error::{Error, ErrorCode, Result};
 
 use read::{self, Reference};
 
-pub use read::{Read, IoRead, SliceRead, StrRead};
+pub use read::{IoRead, Read, SliceRead, StrRead};
 
 //////////////////////////////////////////////////////////////////////////////
 
@@ -26,7 +26,7 @@ pub use read::{Read, IoRead, SliceRead, StrRead};
 pub struct Deserializer<R> {
     read: R,
     str_buf: Vec<u8>,
-    remaining_depth: u8,
+    remaining_depth: usize,
 }
 
 impl<'de, R> Deserializer<R>
@@ -45,7 +45,7 @@ where
         Deserializer {
             read: read,
             str_buf: Vec::with_capacity(128),
-            remaining_depth: 128,
+            remaining_depth: 1024,
         }
     }
 }
@@ -214,12 +214,10 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                     Err(err) => return err,
                 }
             }
-            b'0'...b'9' => {
-                match self.parse_integer(true) {
-                    Ok(n) => n.invalid_type(exp),
-                    Err(err) => return err,
-                }
-            }
+            b'0'...b'9' => match self.parse_integer(true) {
+                Ok(n) => n.invalid_type(exp),
+                Err(err) => return err,
+            },
             b'"' => {
                 self.eat_char();
                 self.str_buf.clear();
@@ -228,12 +226,8 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                     Err(err) => return err,
                 }
             }
-            b'[' => {
-                de::Error::invalid_type(Unexpected::Seq, exp)
-            }
-            b'{' => {
-                de::Error::invalid_type(Unexpected::Map, exp)
-            }
+            b'[' => de::Error::invalid_type(Unexpected::Seq, exp),
+            b'{' => de::Error::invalid_type(Unexpected::Map, exp),
             _ => self.peek_error(ErrorCode::ExpectedSomeValue),
         };
 
@@ -306,7 +300,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                                 return Ok(Number::F64(try!(self.parse_long_integer(
                                     pos,
                                     res,
-                                    1, // res * 10^1
+                                    1 // res * 10^1
                                 ))));
                             }
 
@@ -370,12 +364,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
         })
     }
 
-    fn parse_decimal(
-        &mut self,
-        pos: bool,
-        mut significand: u64,
-        mut exponent: i32,
-    ) -> Result<f64> {
+    fn parse_decimal(&mut self, pos: bool, mut significand: u64, mut exponent: i32) -> Result<f64> {
         self.eat_char();
 
         let mut at_least_one_digit = false;
@@ -407,12 +396,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
         }
     }
 
-    fn parse_exponent(
-        &mut self,
-        pos: bool,
-        significand: u64,
-        starting_exp: i32,
-    ) -> Result<f64> {
+    fn parse_exponent(&mut self, pos: bool, significand: u64, starting_exp: i32) -> Result<f64> {
         self.eat_char();
 
         let pos_exp = match try!(self.peek_or_null()) {
@@ -476,12 +460,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
         Ok(if pos { 0.0 } else { -0.0 })
     }
 
-    fn f64_from_parts(
-        &mut self,
-        pos: bool,
-        significand: u64,
-        mut exponent: i32,
-    ) -> Result<f64> {
+    fn f64_from_parts(&mut self, pos: bool, significand: u64, mut exponent: i32) -> Result<f64> {
         let mut f = significand as f64;
         loop {
             match POW10.get(exponent.abs() as usize) {
@@ -577,9 +556,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                 self.eat_char();
                 self.ignore_integer()
             }
-            b'0'...b'9' => {
-                self.ignore_integer()
-            }
+            b'0'...b'9' => self.ignore_integer(),
             b'"' => {
                 self.eat_char();
                 self.read.ignore_str()
@@ -606,9 +583,7 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                 self.remaining_depth += 1;
                 res
             }
-            _ => {
-                Err(self.peek_error(ErrorCode::ExpectedSomeValue))
-            }
+            _ => Err(self.peek_error(ErrorCode::ExpectedSomeValue)),
         }
     }
 
@@ -620,11 +595,9 @@ impl<'de, R: Read<'de>> Deserializer<R> {
                     return Err(self.peek_error(ErrorCode::InvalidNumber));
                 }
             }
-            b'1'...b'9' => {
-                while let b'0'...b'9' = try!(self.peek_or_null()) {
-                    self.eat_char();
-                }
-            }
+            b'1'...b'9' => while let b'0'...b'9' = try!(self.peek_or_null()) {
+                self.eat_char();
+            },
             _ => {
                 return Err(self.error(ErrorCode::InvalidNumber));
             }
@@ -1191,11 +1164,7 @@ impl<'de, 'a, R: Read<'de>> de::Deserializer<'de> for &'a mut Deserializer<R> {
         }
     }
 
-    fn deserialize_unit_struct<V>(
-        self,
-        _name: &'static str,
-        visitor: V
-    ) -> Result<V::Value>
+    fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
@@ -1248,11 +1217,7 @@ impl<'de, 'a, R: Read<'de>> de::Deserializer<'de> for &'a mut Deserializer<R> {
         }
     }
 
-    fn deserialize_tuple<V>(
-        self,
-        _len: usize,
-        visitor: V
-    ) -> Result<V::Value>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
@@ -1263,7 +1228,7 @@ impl<'de, 'a, R: Read<'de>> de::Deserializer<'de> for &'a mut Deserializer<R> {
         self,
         _name: &'static str,
         _len: usize,
-        visitor: V
+        visitor: V,
     ) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
@@ -1312,7 +1277,7 @@ impl<'de, 'a, R: Read<'de>> de::Deserializer<'de> for &'a mut Deserializer<R> {
         self,
         _name: &'static str,
         _fields: &'static [&'static str],
-        visitor: V
+        visitor: V,
     ) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
@@ -1405,10 +1370,7 @@ impl<'de, 'a, R: Read<'de>> de::Deserializer<'de> for &'a mut Deserializer<R> {
         }
     }
 
-    fn deserialize_identifier<V>(
-        self,
-        visitor: V
-    ) -> Result<V::Value>
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
@@ -1621,21 +1583,30 @@ impl<'de, 'a, R: Read<'de> + 'a> de::VariantAccess<'de> for UnitVariantAccess<'a
     where
         T: de::DeserializeSeed<'de>,
     {
-        Err(de::Error::invalid_type(Unexpected::UnitVariant, &"newtype variant"),)
+        Err(de::Error::invalid_type(
+            Unexpected::UnitVariant,
+            &"newtype variant",
+        ))
     }
 
     fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
-        Err(de::Error::invalid_type(Unexpected::UnitVariant, &"tuple variant"),)
+        Err(de::Error::invalid_type(
+            Unexpected::UnitVariant,
+            &"tuple variant",
+        ))
     }
 
     fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
     where
         V: de::Visitor<'de>,
     {
-        Err(de::Error::invalid_type(Unexpected::UnitVariant, &"struct variant"),)
+        Err(de::Error::invalid_type(
+            Unexpected::UnitVariant,
+            &"struct variant",
+        ))
     }
 }
 
@@ -1835,13 +1806,16 @@ where
 
     fn peek_end_of_value(&mut self) -> Result<()> {
         match try!(self.de.peek()) {
-            Some(b' ') | Some(b'\n') | Some(b'\t') | Some(b'\r') |
-            Some(b'"') | Some(b'[') | Some(b']') | Some(b'{') |
-            Some(b'}') | Some(b',') | Some(b':') | None => Ok(()),
+            Some(b' ') | Some(b'\n') | Some(b'\t') | Some(b'\r') | Some(b'"') | Some(b'[')
+            | Some(b']') | Some(b'{') | Some(b'}') | Some(b',') | Some(b':') | None => Ok(()),
             Some(_) => {
                 let pos = self.de.read.peek_position();
-                Err(Error::syntax(ErrorCode::TrailingCharacters, pos.line, pos.column))
-            },
+                Err(Error::syntax(
+                    ErrorCode::TrailingCharacters,
+                    pos.line,
+                    pos.column,
+                ))
+            }
         }
     }
 }
@@ -1882,10 +1856,10 @@ where
                             self.peek_end_of_value().map(|_| value)
                         }
                     }
-                    Err(e) => Err(e)
+                    Err(e) => Err(e),
                 })
             }
-            Err(e) => Some(Err(e))
+            Err(e) => Some(Err(e)),
         }
     }
 }
