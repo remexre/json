@@ -45,7 +45,7 @@ where
         Deserializer {
             read: read,
             str_buf: Vec::with_capacity(128),
-            remaining_depth: 1024,
+            remaining_depth: 8192,
         }
     }
 }
